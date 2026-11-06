@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>خرگوش پولدار — نسخهٔ آزمایشی</title>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;800&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#bfe6ff;font-family:Vazirmatn,Tahoma,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+canvas{display:block;position:fixed;inset:0;width:100vw;height:100vh;height:100dvh}
+#hud{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;pointer-events:none;color:#fff;font-weight:800;font-size:22px;text-shadow:0 2px 0 rgba(0,0,0,.35)}
+.pill{background:rgba(0,0,0,.28);border-radius:999px;padding:4px 14px}
+#prog{position:fixed;top:58px;left:16px;right:16px;height:8px;background:rgba(0,0,0,.2);border-radius:4px;pointer-events:none;overflow:hidden}
+#progFill{height:100%;width:0;background:#ffcf33;border-radius:4px}
+#overlay{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#fff;text-align:center;background:rgba(20,40,80,.32);font-weight:800;text-shadow:0 2px 0 rgba(0,0,0,.4);padding:20px}
+#overlay h1{margin:0;font-size:34px}
+#overlay p{margin:0;font-size:20px}
+#overlay.bottom{justify-content:flex-end;padding-bottom:70px;background:linear-gradient(transparent 55%,rgba(20,40,80,.45))}
+#overlay button{font:inherit;font-size:22px;padding:10px 30px;border:0;border-radius:16px;background:#ff8a1f;color:#fff;box-shadow:0 4px 0 #b85500;text-shadow:none}
+#help{font-size:15px!important;opacity:.95;line-height:2;font-weight:400}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><span class="pill" id="lvl">مرحلهٔ ۱</span><span class="pill">🥕 <span id="car">۰</span></span></div>
+<div id="prog"><div id="progFill"></div></div>
+<div id="overlay">
+  <h1 id="ovTitle">مرحلهٔ ۱</h1>
+  <p id="ovText">برای شروع، صفحه را لمس کن</p>
+  <p id="help">کشیدن به چپ و راست: جابه‌جایی<br>کشیدن به بالا: پرش<br>کشیدن به پایین: ترمز و سُر خوردن</p>
+  <button id="again" class="hidden">دوباره</button>
+</div>
+<script>
+'use strict';
+// ===== نسخهٔ آزمایشی (موقت): WebGL ساده، بدون کتابخانه =====
+const canvas=document.getElementById('c');
+const gl=canvas.getContext('webgl',{antialias:true});
+const $=id=>document.getElementById(id);
+const fa=n=>Number(n).toLocaleString('fa-IR');
+
+// ---------- ریاضی ماتریس ----------
+const I=()=>{const m=new Float32Array(16);m[0]=m[5]=m[10]=m[15]=1;return m;};
+function mul(a,b){const o=new Float32Array(16);for(let c=0;c<4;c++)for(let r=0;r<4;r++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s;}return o;}
+const T=(x,y,z)=>{const m=I();m[12]=x;m[13]=y;m[14]=z;return m;};
+const S=(x,y,z)=>{const m=I();m[0]=x;m[5]=y;m[10]=z;return m;};
+const RX=a=>{const m=I(),c=Math.cos(a),s=Math.sin(a);m[5]=c;m[6]=s;m[9]=-s;m[10]=c;return m;};
+const RY=a=>{const m=I(),c=Math.cos(a),s=Math.sin(a);m[0]=c;m[2]=-s;m[8]=s;m[10]=c;return m;};
+const RZ=a=>{const m=I(),c=Math.cos(a),s=Math.sin(a);m[0]=c;m[1]=s;m[4]=-s;m[5]=c;return m;};
+const M=(...ms)=>ms.reduce((a,b)=>mul(a,b));
+function persp(fy,asp,n,f){const t=1/Math.tan(fy/2),m=new Float32Array(16);m[0]=t/asp;m[5]=t;m[10]=(f+n)/(n-f);m[11]=-1;m[14]=2*f*n/(n-f);return m;}
+function sub(a,b){return[a[0]-b[0],a[1]-b[1],a[2]-b[2]];}
+function cross(a,b){return[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];}
+function norm(a){const l=Math.hypot(a[0],a[1],a[2])||1;return[a[0]/l,a[1]/l,a[2]/l];}
+function lookAt(e,t,u){const z=norm(sub(e,t)),x=norm(cross(u,z)),y=cross(z,x),m=I();
+  m[0]=x[0];m[4]=x[1];m[8]=x[2];m[1]=y[0];m[5]=y[1];m[9]=y[2];m[2]=z[0];m[6]=z[1];m[10]=z[2];
+  m[12]=-(x[0]*e[0]+x[1]*e[1]+x[2]*e[2]);m[13]=-(y[0]*e[0]+y[1]*e[1]+y[2]*e[2]);m[14]=-(z[0]*e[0]+z[1]*e[1]+z[2]*e[2]);return m;}
+const tp=(m,p)=>[m[0]*p[0]+m[4]*p[1]+m[8]*p[2]+m[12],m[1]*p[0]+m[5]*p[1]+m[9]*p[2]+m[13],m[2]*p[0]+m[6]*p[1]+m[10]*p[2]+m[14]];
+const hex=h=>[((h>>16)&255)/255,((h>>8)&255)/255,(h&255)/255];
+const lerp=(a,b,t)=>a+(b-a)*t;
+const ease=p=>p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+function rng(seed){return()=>{seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+// ---------- شیدر ----------
+const VS=`attribute vec3 aPos;attribute vec3 aNor;uniform mat4 uM,uVP;varying vec3 vN;varying vec3 vW;
+void main(){vec4 w=uM*vec4(aPos,1.);vW=w.xyz;vN=(uM*vec4(aNor,0.)).xyz;gl_Position=uVP*w;}`;
+const FS=`precision mediump float;uniform vec3 uColor,uCam,uFog,uLight;uniform float uFogN,uFogF,uEmis;varying vec3 vN;varying vec3 vW;
+void main(){vec3 n=normalize(vN);float d=max(dot(n,uLight),0.);float h=.5+.5*n.y;
+vec3 c=uColor*(.42+.2*h+.5*d);c=mix(c,uColor*1.1,uEmis);
+float f=clamp((distance(vW,uCam)-uFogN)/(uFogF-uFogN),0.,1.);gl_FragColor=vec4(mix(c,uFog,f),1.);}`;
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(o);return o;}
+const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(prog);gl.useProgram(prog);
+const U={};['uM','uVP','uColor','uCam','uFog','uLight','uFogN','uFogF','uEmis'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+const aPos=gl.getAttribLocation(prog,'aPos'),aNor=gl.getAttribLocation(prog,'aNor');
+gl.enableVertexAttribArray(aPos);gl.enableVertexAttribArray(aNor);gl.enable(gl.DEPTH_TEST);
+
+// ---------- شکل‌ها ----------
+function mk(v){const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(v),gl.STATIC_DRAW);return{b,n:v.length/6};}
+function cubeGeo(){const v=[];for(const n of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]){
+  const u=Math.abs(n[1])>0?[1,0,0]:[0,1,0],w=cross(n,u);const P=(s,t)=>[n[0]*.5+u[0]*s*.5+w[0]*t*.5,n[1]*.5+u[1]*s*.5+w[1]*t*.5,n[2]*.5+u[2]*s*.5+w[2]*t*.5];
+  for(const [s,t] of [[-1,-1],[1,-1],[1,1],[-1,-1],[1,1],[-1,1]])v.push(...P(s,t),...n);}return mk(v);}
+function sphereGeo(sg=18,rg=12){const v=[];const p=(i,j)=>{const th=i/rg*Math.PI,ph=j/sg*Math.PI*2;return[Math.sin(th)*Math.cos(ph),Math.cos(th),Math.sin(th)*Math.sin(ph)];};
+  for(let i=0;i<rg;i++)for(let j=0;j<sg;j++){const a=p(i,j),b=p(i+1,j),c=p(i+1,j+1),d=p(i,j+1);for(const q of [a,b,c,a,c,d])v.push(...q,...q);}return mk(v);}
+function coneGeo(sg=12){const v=[];for(let j=0;j<sg;j++){const a0=j/sg*Math.PI*2,a1=(j+1)/sg*Math.PI*2,am=(a0+a1)/2;
+  const p0=[Math.cos(a0),0,Math.sin(a0)],p1=[Math.cos(a1),0,Math.sin(a1)],n=norm([Math.cos(am),.6,Math.sin(am)]);
+  v.push(...p0,...n,...p1,...n,0,1,0,...n);v.push(0,0,0,0,-1,0,...p1,0,-1,0,...p0,0,-1,0);}return mk(v);}
+function starGeo(){const v=[],pts=[];for(let i=0;i<10;i++){const a=i/10*Math.PI*2-Math.PI/2,r=i%2?.45:1;pts.push([Math.cos(a)*r,Math.sin(a)*r]);}
+  for(const z of [.12,-.12])for(let i=0;i<10;i++){const a=pts[i],b=pts[(i+1)%10];v.push(0,0,z*1.6,0,0,Math.sign(z),a[0],a[1],z,0,0,Math.sign(z),b[0],b[1],z,0,0,Math.sign(z));}return mk(v);}
+const G={cube:cubeGeo(),sph:sphereGeo(),cone:coneGeo(),pyr:coneGeo(4),star:starGeo()};
+let bound=null;
+function draw(g,m,col,emis=0){if(bound!==g){gl.bindBuffer(gl.ARRAY_BUFFER,g.b);gl.vertexAttribPointer(aPos,3,gl.FLOAT,false,24,0);gl.vertexAttribPointer(aNor,3,gl.FLOAT,false,24,12);bound=g;}
+  gl.uniformMatrix4fv(U.uM,false,m);gl.uniform3fv(U.uColor,col);gl.uniform1f(U.uEmis,emis);gl.drawArrays(gl.TRIANGLES,0,g.n);}
+
+// ---------- رنگ‌ها ----------
+const C={fur:hex(0xf2a93b),cream:hex(0xfff0d6),red:hex(0xd9262b),brown:hex(0x7a2e22),pink:hex(0xf4a0a8),black:hex(0x1d1d1d),white:hex(0xffffff),
+  road:hex(0x6d7280),side:hex(0xd9d4c7),grass:hex(0x7cc35a),dash:hex(0xffffff),crate:hex(0xc0843f),crateD:hex(0x7d5222),thorn:hex(0x3f7d2a),thornB:hex(0x5b4a2e),
+  carrot:hex(0xff8a1f),leaf:hex(0x3fae3a),star:hex(0xffd83a),shadow:hex(0x4f535d),orange:hex(0xff8a1f),glass:hex(0x9fd3f0)};
+const SKY=hex(0xbfe6ff);
+const HOUSE=[0xf7c59f,0xf4a6a6,0xa8d8ea,0xc3e6a5,0xffe08a,0xd7b7f0].map(hex),ROOF=[0xc0392b,0x8e44ad,0x2e86c1,0xd35400].map(hex);
+
+// ---------- مرحله ----------
+const LANES=[-2.3,0,2.3],L=520,DIZZY=2.8;
+let obs=[],carrots=[],houses=[];
+function genLevel(level){const R=rng(level*9973+7);obs=[];carrots=[];houses=[];
+  const line=(lane,z,n)=>{for(let i=0;i<n;i++)carrots.push({x:LANES[lane],y:.9,z:z-i*1.8,t:0,got:false});};
+  const add=(type,lane,z)=>obs.push({type,lane,x:LANES[lane],y:0,z,st:'idle',vx:0,vy:0,vz:0,rx:0,rz:0,sq:1,t:0});
+  let row=0;for(let z=-24;z>-L+20;z-=13,row++){const r=R(),lane=R()*3|0;
+    if(row<3||r<.2)line(lane,z,5);
+    else if(r<.6){add(R()<.6?'box':'thorn',lane,z);line((lane+1+(R()*2|0))%3,z+2,4);}
+    else if(r<.8){for(let l=0;l<3;l++)if(l!==lane)add(R()<.5?'box':'thorn',l,z);line(lane,z+3,4);}
+    else{add('box',lane,z);for(let i=-2;i<=2;i++)carrots.push({x:LANES[lane],y:1.1+1.5*(1-(i/2.4)**2),z:z-i*1.6,t:0,got:false});}}
+  for(let z=6;z>-L-80;z-=9)for(const s of [-1,1]){const w=4+R()*2.5,h=3.5+R()*5,d=6+R()*2;
+    houses.push({x:s*(8.5+w/2+R()*1.5),z:z-R()*2,w,h,d,c:HOUSE[R()*HOUSE.length|0],r:ROOF[R()*ROOF.length|0],s});}}
+
+// ---------- وضعیت ----------
+let state='ready',time=0,stateT=0;
+const B={lane:1,x:0,y:0,vy:0,z:0,speed:0,slideT:0,dizzyT:0,invT:0,phase:0,roll:0,carrots:0,slideAmt:0,sitAmt:0,airAmt:0,pendSlide:false};
+const cam={p:[0,4,8],l:[0,1,-5]};
+function reset(){Object.assign(B,{lane:1,x:0,y:0,vy:0,z:0,speed:0,slideT:0,dizzyT:0,invT:0,phase:0,roll:0,carrots:0,slideAmt:0,sitAmt:0,airAmt:0,pendSlide:false});
+  genLevel(1);state='ready';stateT=0;cam.p=[0,4,7.5];cam.l=[0,1.2,-6];
+  $('overlay').classList.remove('hidden','bottom');$('again').classList.add('hidden');$('ovTitle').textContent='مرحلهٔ ۱';$('ovText').textContent='برای شروع، صفحه را لمس کن';$('help').classList.remove('hidden');}
+function start(){if(state!=='ready')return;state='run';stateT=0;$('overlay').classList.add('hidden');}
+function hurt(o){state='dizzy';stateT=0;B.dizzyT=DIZZY;B.speed=0;B.slideT=0;B.vy=0;B.y=0;
+  if(o){if(o.type==='box')kick(o,.5);else{o.st='done';B.z=o.z+1.7;}}}
+function kick(o,power=1){o.st='kicked';o.t=0;const side=o.x>B.x+.1?1:o.x<B.x-.1?-1:(Math.random()<.5?-1:1);
+  o.vx=side*(7+Math.random()*4)*power;o.vy=10*power;o.vz=-16*power;}
+function swipe(d){if(state==='ready'){start();return;}if(state!=='run')return;
+  if(d==='L')B.lane=Math.max(0,B.lane-1);else if(d==='R')B.lane=Math.min(2,B.lane+1);
+  else if(d==='U'){if(B.y<=0.01){B.vy=11;B.slideT=0;}}
+  else if(d==='D'){if(B.y>0.01){B.vy=-24;B.pendSlide=true;}else B.slideT=.75;}}
+
+// ---------- به‌روزرسانی ----------
+function update(dt){time+=dt;stateT+=dt;
+  if(state==='run'||state==='finish'){
+    const prog=Math.min(1,-B.z/L);let ts=13+4*prog;if(B.slideT>0)ts*=.72;if(state==='finish')ts=0;
+    B.speed=lerp(B.speed,ts,1-Math.exp(-dt*(state==='finish'?2:B.slideT>0?8:2.5)));
+    B.z-=B.speed*dt;B.phase+=B.speed*dt*1.15;
+    const tx=LANES[B.lane];B.roll=lerp(B.roll,(tx-B.x)*-.22,1-Math.exp(-dt*10));B.x=lerp(B.x,tx,1-Math.exp(-dt*14));
+    if(B.y>0||B.vy>0){B.vy-=30*dt;B.y+=B.vy*dt;if(B.y<=0){B.y=0;B.vy=0;if(B.pendSlide){B.slideT=.6;B.pendSlide=false;}}}
+    B.slideT=Math.max(0,B.slideT-dt);B.invT=Math.max(0,B.invT-dt);
+    if(state==='run'){collide();if(B.z<-L){state='finish';stateT=0;}}
+    if(state==='finish'&&stateT>2.6&&$('again').classList.contains('hidden')){
+      $('overlay').classList.remove('hidden');$('overlay').classList.add('bottom');$('ovTitle').textContent='🎉 مرحلهٔ ۱ تمام شد!';$('ovText').textContent='هویج‌ها: '+fa(B.carrots);$('help').classList.add('hidden');$('again').classList.remove('hidden');}
+  }else if(state==='dizzy'){B.dizzyT-=dt;if(B.dizzyT<=0){state='run';stateT=0;B.invT=1.2;}}
+  else if(state==='ready'){B.phase+=dt*2;}
+  // پوزها
+  const k=1-Math.exp(-dt*12);
+  B.slideAmt=lerp(B.slideAmt,B.slideT>0?1:0,k);B.sitAmt=lerp(B.sitAmt,state==='dizzy'?1:0,k);B.airAmt=lerp(B.airAmt,B.y>0.05?1:0,k);
+  for(const o of obs){if(o.st==='kicked'){o.t+=dt;o.vy-=30*dt;o.x+=o.vx*dt;o.y+=o.vy*dt;o.z+=o.vz*dt;o.rx+=dt*9;o.rz+=dt*7*Math.sign(o.vx);}
+    else if(o.st==='squashed')o.sq=lerp(o.sq,.15,1-Math.exp(-dt*25));}
+  for(const c of carrots)if(c.got)c.t+=dt;
+  updateCam(dt);
+  $('car').textContent=fa(B.carrots);$('progFill').style.width=(Math.min(1,-B.z/L)*100)+'%';}
+function collide(){for(const o of obs){if(o.st!=='idle')continue;const dz=o.z-B.z;if(dz>.9||dz<-.9||Math.abs(o.x-B.x)>1.1)continue;
+    if(o.type==='box'){if(B.y>.75){o.st='squashed';B.vy=9;}else if(B.slideT>0)kick(o);else if(B.invT<=0){hurt(o);return;}}
+    else{if(B.y>.45)continue;if(B.invT<=0){hurt(o);return;}}}
+  for(const c of carrots){if(c.got)continue;if(Math.abs(c.z-B.z)<.9&&Math.abs(c.x-B.x)<1&&Math.abs(c.y-(B.y+.8))<1.1){c.got=true;B.carrots++;}}}
+function updateCam(dt){let p,l,k;
+  if(state==='dizzy'){const a=ease(Math.min(1,(DIZZY-B.dizzyT)/DIZZY))*Math.PI*2,R=3.6;p=[B.x+Math.sin(a)*R,1.9,B.z+Math.cos(a)*R];l=[B.x,.95,B.z];k=12;}
+  else if(state==='finish'){const a=ease(Math.min(1,stateT/2.2))*Math.PI,R=4;p=[B.x+Math.sin(a)*R,2.2,B.z+Math.cos(a)*R];l=[B.x,1.1,B.z];k=8;}
+  else{p=[B.x*.6,3.7+B.y*.75,B.z+6.8];l=[B.x*.8,1.2+B.y*.6,B.z-6];k=7;}
+  const f=1-Math.exp(-dt*k);for(let i=0;i<3;i++){cam.p[i]=lerp(cam.p[i],p[i],f);cam.l[i]=lerp(cam.l[i],l[i],f);}}
+
+// ---------- رسم ----------
+function drawBunny(){const b=B,run=(state==='run'||state==='finish')&&b.speed>.5?1:0;
+  const sw=Math.sin(b.phase)*(run?.9:.08)*(1-b.slideAmt)*(1-b.sitAmt)*(1-b.airAmt*.7);
+  let root=M(T(b.x,b.y,b.z),RZ(b.roll),RY(.55*b.slideAmt),T(0,-.28*b.sitAmt,0),RX(.95*b.slideAmt));
+  const bob=run?Math.abs(Math.sin(b.phase))*.08*(1-b.slideAmt)*(1-b.airAmt):0;root=mul(root,T(0,bob,0));
+  // پاها و کفش
+  for(const s of [-1,1]){let lr=sw*s+.3*b.slideAmt+1.4*b.sitAmt+(s>0?.7:-.2)*b.airAmt;
+    const leg=M(root,T(s*.17,.55,0),RX(lr));draw(G.sph,M(leg,T(0,-.22,0),S(.11,.2,.11)),C.fur);draw(G.cube,M(leg,T(0,-.48,-.06),S(.22,.17,.34)),C.red);draw(G.cube,M(leg,T(0,-.565,-.06),S(.23,.04,.35)),C.cream);}
+  // بدن
+  draw(G.sph,M(root,T(0,.78,0),S(.4,.42,.33)),C.brown);
+  draw(G.sph,M(root,T(0,1.0,-.12),S(.27,.24,.2)),C.cream);
+  draw(G.sph,M(root,T(0,.68,.33),S(.13,.13,.13)),C.cream);
+  for(const s of [-1,1])draw(G.cube,M(root,T(s*.17,1.0,-.27),RX(.15),S(.06,.32,.04)),C.brown);
+  // دست‌ها
+  for(const s of [-1,1]){const ar=-sw*s*1.1;const arm=M(root,T(s*.38,1.02,0),RX(ar),RZ(s*(.15+.9*b.sitAmt+.5*b.airAmt)));draw(G.sph,M(arm,T(0,-.22,0),S(.09,.24,.09)),C.fur);}
+  // سر
+  const wob=b.sitAmt*Math.sin(time*7)*.18;const head=M(root,T(0,1.38,0),RZ(wob),RX(-.25*b.slideAmt));
+  draw(G.sph,M(head,S(.36,.34,.33)),C.fur);
+  draw(G.sph,M(head,T(0,-.1,-.24),S(.2,.14,.13)),C.cream);
+  draw(G.sph,M(head,T(0,-.02,-.36),S(.06,.045,.04)),C.pink);
+  draw(G.cube,M(head,T(0,-.2,-.33),S(.09,.08,.03)),C.white);
+  for(const s of [-1,1]){draw(G.sph,M(head,T(s*.12,.06,-.28),S(.09,.11,.07)),C.white);draw(G.sph,M(head,T(s*.12,.05,-.345),S(.045,.06,.03)),C.black);}
+  draw(G.sph,M(head,T(0,.2,.02),S(.38,.24,.37)),C.red);draw(G.cube,M(head,T(0,.15,-.31),RX(-.3),S(.48,.035,.14)),C.red);
+  for(const s of [-1,1]){const ear=M(head,T(s*.15,.32,.04),RZ(-s*.12),RX(.22+.08*Math.sin(time*9)*run+.5*b.airAmt));
+    draw(G.sph,M(ear,T(0,.36,0),S(.1,.4,.06)),C.fur);draw(G.sph,M(ear,T(0,.36,-.03),S(.06,.32,.04)),C.pink);}
+  // ستاره‌ها
+  if(b.sitAmt>.3){const hp=tp(head,[0,.85,0]);for(let i=0;i<5;i++){const a=time*4+i*Math.PI*2/5;
+    draw(G.star,M(T(hp[0]+Math.cos(a)*.55,hp[1]+Math.sin(a*2)*.05,hp[2]+Math.sin(a)*.55),RY(-a),S(.13,.13,.13)),C.star,.8);}}
+  // سایه
+  const sc=.55/(1+b.y*.4);draw(G.sph,M(T(b.x,.025,b.z),S(sc,.01,sc*.9)),C.shadow);}
+function drawWorld(){const z0=B.z+20,z1=B.z-130,mz=(z0+z1)/2,len=z0-z1;
+  draw(G.cube,M(T(0,-.05,mz),S(7.6,.1,len)),C.road);
+  for(const s of [-1,1]){draw(G.cube,M(T(s*4.55,0,mz),S(1.5,.2,len)),C.side);draw(G.cube,M(T(s*30,-.06,mz),S(50,.1,len)),C.grass);}
+  for(let z=Math.floor(z0/6)*6;z>z1;z-=6)for(const s of [-1,1])draw(G.cube,M(T(s*1.15,.005,z),S(.15,.02,2.6)),C.dash);
+  // خط شروع و پایان
+  if(z0>-3&&z1<-1)draw(G.cube,M(T(0,.01,-1.5),S(7.6,.02,.6)),C.white);
+  if(z1<-L+5){for(let i=0;i<10;i++)for(let j=0;j<2;j++)draw(G.cube,M(T(-3.42+i*.76,.012,-L-.38+j*.76),S(.76,.02,.76)),(i+j)%2?C.black:C.white);
+    for(const s of [-1,1])draw(G.cube,M(T(s*4,2.2,-L),S(.35,4.4,.35)),C.orange);draw(G.cube,M(T(0,4.4,-L),S(8.4,.8,.4)),C.red);}
+  for(const h of houses){if(h.z>z0+10||h.z<z1)continue;draw(G.cube,M(T(h.x,h.h/2,h.z),S(h.w,h.h,h.d)),h.c);
+    draw(G.pyr,M(T(h.x,h.h,h.z),RY(Math.PI/4),S(h.w*.74,1.8,h.d*.74)),h.r);
+    const fx=h.x-h.s*(h.w/2+.01);for(const dz of [-1.5,1.5]){draw(G.cube,M(T(fx,h.h*.6,h.z+dz),S(.05,1.1,1.1)),C.glass);}
+    draw(G.cube,M(T(fx,.8,h.z),S(.05,1.6,.9)),C.crateD);}
+  for(const o of obs){if(o.z>z0||o.z<z1||(o.st==='kicked'&&o.t>2))continue;
+    if(o.type==='box'){const m=M(T(o.x,o.y,o.z),RX(o.rx),RZ(o.rz),S(1,o.sq,1));draw(G.cube,M(m,T(0,.6,0),S(1.3,1.2,1)),C.crate);
+      for(const yy of [.12,1.08])draw(G.cube,M(m,T(0,yy,-.01),S(1.36,.16,1.04)),C.crateD);draw(G.cube,M(m,T(0,.6,-.51),RZ(.75),S(1.5,.14,.04)),C.crateD);}
+    else{draw(G.cube,M(T(o.x,.05,o.z),S(1.6,.1,1.1)),C.thornB);for(let i=0;i<3;i++)for(let j=0;j<2;j++)draw(G.cone,M(T(o.x-.5+i*.5,.08,o.z-.25+j*.5),S(.17,.6,.17)),C.thorn);}}
+  for(const c of carrots){if(c.z>z0||c.z<z1||(c.got&&c.t>.35))continue;const g=c.got?1-c.t/.35:1;
+    const m=M(T(c.x,c.y+Math.sin(time*3+c.z)*.08+(c.got?c.t*4:0),c.z),RY(time*2.5+c.z),RZ(.35),S(g,g,g));
+    draw(G.cone,M(m,T(0,.35,0),RX(Math.PI),S(.15,.7,.15)),C.carrot,.15);draw(G.cone,M(m,T(0,.33,0),S(.1,.28,.1)),C.leaf);}}
+function render(){const dpr=Math.min(2,window.devicePixelRatio||1),w=Math.round(innerWidth*dpr),h=Math.round(innerHeight*dpr);
+  if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}gl.viewport(0,0,w,h);
+  gl.clearColor(SKY[0],SKY[1],SKY[2],1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  const asp=w/h,fy=Math.min(85,Math.max(55,2*Math.atan(Math.tan(28*Math.PI/180)/asp)*180/Math.PI))*Math.PI/180;
+  gl.uniformMatrix4fv(U.uVP,false,mul(persp(fy,asp,.1,220),lookAt(cam.p,cam.l,[0,1,0])));
+  gl.uniform3fv(U.uCam,cam.p);gl.uniform3fv(U.uFog,SKY);gl.uniform3fv(U.uLight,norm([.4,.85,.35]));gl.uniform1f(U.uFogN,45);gl.uniform1f(U.uFogF,125);
+  bound=null;drawWorld();drawBunny();}
+
+// ---------- ورودی ----------
+let ps=null;
+addEventListener('pointerdown',e=>{if(e.target.tagName==='BUTTON')return;ps={x:e.clientX,y:e.clientY,done:false};});
+addEventListener('pointermove',e=>{if(!ps||ps.done)return;const dx=e.clientX-ps.x,dy=e.clientY-ps.y;if(Math.hypot(dx,dy)>28){ps.done=true;swipe(Math.abs(dx)>Math.abs(dy)?(dx<0?'L':'R'):(dy<0?'U':'D'));}});
+addEventListener('pointerup',()=>{if(ps&&!ps.done&&state==='ready')start();ps=null;});
+addEventListener('keydown',e=>{const k={ArrowLeft:'L',a:'L',ArrowRight:'R',d:'R',ArrowUp:'U',w:'U',ArrowDown:'D',s:'D'}[e.key];if(k)swipe(k);else if(e.key===' ')start();});
+$('again').addEventListener('click',reset);
+// ابزار تست خودکار
+window.__g={B,get state(){return state;},swipe,start,hurt:()=>hurt(null),jumpTo:z=>{B.z=z;},sim:sec=>{for(let i=0;i<Math.round(sec*60);i++)update(1/60);render();},stop:()=>{paused=true;}};
+
+let last=performance.now();
+let paused=false;
+function loop(now){if(paused)return;const dt=Math.min(.05,(now-last)/1000);last=now;update(dt);render();requestAnimationFrame(loop);}
+reset();requestAnimationFrame(loop);
+</script>
+</body>
+</html>

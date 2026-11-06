@@ -94,12 +94,12 @@ function draw(g,m,col,emis=0){if(bound!==g){gl.bindBuffer(gl.ARRAY_BUFFER,g.b);g
 // ---------- رنگ‌ها ----------
 const C={fur:hex(0xf2a93b),cream:hex(0xfff0d6),red:hex(0xd9262b),brown:hex(0x7a2e22),pink:hex(0xf4a0a8),black:hex(0x1d1d1d),white:hex(0xffffff),
   road:hex(0x6d7280),side:hex(0xd9d4c7),grass:hex(0x7cc35a),dash:hex(0xffffff),crate:hex(0xc0843f),crateD:hex(0x7d5222),thorn:hex(0x3f7d2a),thornB:hex(0x5b4a2e),
-  carrot:hex(0xff8a1f),leaf:hex(0x3fae3a),star:hex(0xffd83a),shadow:hex(0x4f535d),orange:hex(0xff8a1f),glass:hex(0x9fd3f0)};
+  carrot:hex(0xff8a1f),leaf:hex(0x3fae3a),star:hex(0xffd83a),shadow:hex(0x5a5e68),orange:hex(0xff8a1f),glass:hex(0x9fd3f0)};
 const SKY=hex(0xbfe6ff);
 const HOUSE=[0xf7c59f,0xf4a6a6,0xa8d8ea,0xc3e6a5,0xffe08a,0xd7b7f0].map(hex),ROOF=[0xc0392b,0x8e44ad,0x2e86c1,0xd35400].map(hex);
 
 // ---------- مرحله ----------
-const LANES=[-2.3,0,2.3],L=520,DIZZY=2.8;
+const XMAX=7.2,LANES=[-2.3,0,2.3],L=520,DIZZY=2.8;
 let obs=[],carrots=[],houses=[];
 function genLevel(level){const R=rng(level*9973+7);obs=[];carrots=[];houses=[];
   const line=(lane,z,n)=>{for(let i=0;i<n;i++)carrots.push({x:LANES[lane],y:.9,z:z-i*1.8,t:0,got:false});};
@@ -114,9 +114,9 @@ function genLevel(level){const R=rng(level*9973+7);obs=[];carrots=[];houses=[];
 
 // ---------- وضعیت ----------
 let state='ready',time=0,stateT=0;
-const B={lane:1,x:0,y:0,vy:0,z:0,speed:0,slideT:0,dizzyT:0,invT:0,phase:0,roll:0,carrots:0,slideAmt:0,sitAmt:0,airAmt:0,pendSlide:false};
+const B={tx:0,vx:0,steer:0,x:0,y:0,vy:0,z:0,speed:0,slideT:0,dizzyT:0,invT:0,phase:0,roll:0,carrots:0,slideAmt:0,sitAmt:0,airAmt:0,pendSlide:false};
 const cam={p:[0,4,8],l:[0,1,-5]};
-function reset(){Object.assign(B,{lane:1,x:0,y:0,vy:0,z:0,speed:0,slideT:0,dizzyT:0,invT:0,phase:0,roll:0,carrots:0,slideAmt:0,sitAmt:0,airAmt:0,pendSlide:false});
+function reset(){Object.assign(B,{tx:0,vx:0,steer:0,x:0,y:0,vy:0,z:0,speed:0,slideT:0,dizzyT:0,invT:0,phase:0,roll:0,carrots:0,slideAmt:0,sitAmt:0,airAmt:0,pendSlide:false});
   genLevel(1);state='ready';stateT=0;cam.p=[0,4,7.5];cam.l=[0,1.2,-6];
   $('overlay').classList.remove('hidden','bottom');$('again').classList.add('hidden');$('ovTitle').textContent='مرحلهٔ ۱';$('ovText').textContent='برای شروع، صفحه را لمس کن';$('help').classList.remove('hidden');}
 function start(){if(state!=='ready')return;state='run';stateT=0;$('overlay').classList.add('hidden');}
@@ -125,8 +125,7 @@ function hurt(o){state='dizzy';stateT=0;B.dizzyT=DIZZY;B.speed=0;B.slideT=0;B.vy
 function kick(o,power=1){o.st='kicked';o.t=0;const side=o.x>B.x+.1?1:o.x<B.x-.1?-1:(Math.random()<.5?-1:1);
   o.vx=side*(7+Math.random()*4)*power;o.vy=10*power;o.vz=-16*power;}
 function swipe(d){if(state==='ready'){start();return;}if(state!=='run')return;
-  if(d==='L')B.lane=Math.max(0,B.lane-1);else if(d==='R')B.lane=Math.min(2,B.lane+1);
-  else if(d==='U'){if(B.y<=0.01){B.vy=11;B.slideT=0;}}
+  if(d==='U'){if(B.y<=0.01){B.vy=11;B.slideT=0;}}
   else if(d==='D'){if(B.y>0.01){B.vy=-24;B.pendSlide=true;}else B.slideT=.75;}}
 
 // ---------- به‌روزرسانی ----------
@@ -135,7 +134,7 @@ function update(dt){time+=dt;stateT+=dt;
     const prog=Math.min(1,-B.z/L);let ts=13+4*prog;if(B.slideT>0)ts*=.72;if(state==='finish')ts=0;
     B.speed=lerp(B.speed,ts,1-Math.exp(-dt*(state==='finish'?2:B.slideT>0?8:2.5)));
     B.z-=B.speed*dt;B.phase+=B.speed*dt*1.15;
-    const tx=LANES[B.lane];B.roll=lerp(B.roll,(tx-B.x)*-.22,1-Math.exp(-dt*10));B.x=lerp(B.x,tx,1-Math.exp(-dt*14));
+    if(B.steer&&state==='run')B.tx+=B.steer*10*dt;B.tx=Math.max(-XMAX,Math.min(XMAX,B.tx));const ox=B.x;B.x=lerp(B.x,B.tx,1-Math.exp(-dt*16));B.vx=lerp(B.vx,(B.x-ox)/dt,1-Math.exp(-dt*12));
     if(B.y>0||B.vy>0){B.vy-=30*dt;B.y+=B.vy*dt;if(B.y<=0){B.y=0;B.vy=0;if(B.pendSlide){B.slideT=.6;B.pendSlide=false;}}}
     B.slideT=Math.max(0,B.slideT-dt);B.invT=Math.max(0,B.invT-dt);
     if(state==='run'){collide();if(B.z<-L){state='finish';stateT=0;}}
@@ -158,39 +157,48 @@ function collide(){for(const o of obs){if(o.st!=='idle')continue;const dz=o.z-B.
 function updateCam(dt){let p,l,k;
   if(state==='dizzy'){const a=ease(Math.min(1,(DIZZY-B.dizzyT)/DIZZY))*Math.PI*2,R=3.6;p=[B.x+Math.sin(a)*R,1.9,B.z+Math.cos(a)*R];l=[B.x,.95,B.z];k=12;}
   else if(state==='finish'){const a=ease(Math.min(1,stateT/2.2))*Math.PI,R=4;p=[B.x+Math.sin(a)*R,2.2,B.z+Math.cos(a)*R];l=[B.x,1.1,B.z];k=8;}
-  else{p=[B.x*.6,3.7+B.y*.75,B.z+6.8];l=[B.x*.8,1.2+B.y*.6,B.z-6];k=7;}
+  else{p=[B.x*.75,3.7+B.y*.75,B.z+6.8];l=[B.x*.9,1.2+B.y*.6,B.z-6];k=7;}
   const f=1-Math.exp(-dt*k);for(let i=0;i<3;i++){cam.p[i]=lerp(cam.p[i],p[i],f);cam.l[i]=lerp(cam.l[i],l[i],f);}}
 
 // ---------- رسم ----------
-function drawBunny(){const b=B,run=(state==='run'||state==='finish')&&b.speed>.5?1:0;
-  const sw=Math.sin(b.phase)*(run?.9:.08)*(1-b.slideAmt)*(1-b.sitAmt)*(1-b.airAmt*.7);
-  let root=M(T(b.x,b.y,b.z),RZ(b.roll),RY(.55*b.slideAmt),T(0,-.28*b.sitAmt,0),RX(.95*b.slideAmt));
-  const bob=run?Math.abs(Math.sin(b.phase))*.08*(1-b.slideAmt)*(1-b.airAmt):0;root=mul(root,T(0,bob,0));
-  // پاها و کفش
-  for(const s of [-1,1]){let lr=sw*s+.3*b.slideAmt+1.4*b.sitAmt+(s>0?.7:-.2)*b.airAmt;
-    const leg=M(root,T(s*.17,.55,0),RX(lr));draw(G.sph,M(leg,T(0,-.22,0),S(.11,.2,.11)),C.fur);draw(G.cube,M(leg,T(0,-.48,-.06),S(.22,.17,.34)),C.red);draw(G.cube,M(leg,T(0,-.565,-.06),S(.23,.04,.35)),C.cream);}
-  // بدن
-  draw(G.sph,M(root,T(0,.78,0),S(.4,.42,.33)),C.brown);
-  draw(G.sph,M(root,T(0,1.0,-.12),S(.27,.24,.2)),C.cream);
-  draw(G.sph,M(root,T(0,.68,.33),S(.13,.13,.13)),C.cream);
-  for(const s of [-1,1])draw(G.cube,M(root,T(s*.17,1.0,-.27),RX(.15),S(.06,.32,.04)),C.brown);
-  // دست‌ها
-  for(const s of [-1,1]){const ar=-sw*s*1.1;const arm=M(root,T(s*.38,1.02,0),RX(ar),RZ(s*(.15+.9*b.sitAmt+.5*b.airAmt)));draw(G.sph,M(arm,T(0,-.22,0),S(.09,.24,.09)),C.fur);}
-  // سر
-  const wob=b.sitAmt*Math.sin(time*7)*.18;const head=M(root,T(0,1.38,0),RZ(wob),RX(-.25*b.slideAmt));
-  draw(G.sph,M(head,S(.36,.34,.33)),C.fur);
-  draw(G.sph,M(head,T(0,-.1,-.24),S(.2,.14,.13)),C.cream);
-  draw(G.sph,M(head,T(0,-.02,-.36),S(.06,.045,.04)),C.pink);
-  draw(G.cube,M(head,T(0,-.2,-.33),S(.09,.08,.03)),C.white);
-  for(const s of [-1,1]){draw(G.sph,M(head,T(s*.12,.06,-.28),S(.09,.11,.07)),C.white);draw(G.sph,M(head,T(s*.12,.05,-.345),S(.045,.06,.03)),C.black);}
-  draw(G.sph,M(head,T(0,.2,.02),S(.38,.24,.37)),C.red);draw(G.cube,M(head,T(0,.15,-.31),RX(-.3),S(.48,.035,.14)),C.red);
-  for(const s of [-1,1]){const ear=M(head,T(s*.15,.32,.04),RZ(-s*.12),RX(.22+.08*Math.sin(time*9)*run+.5*b.airAmt));
-    draw(G.sph,M(ear,T(0,.36,0),S(.1,.4,.06)),C.fur);draw(G.sph,M(ear,T(0,.36,-.03),S(.06,.32,.04)),C.pink);}
-  // ستاره‌ها
-  if(b.sitAmt>.3){const hp=tp(head,[0,.85,0]);for(let i=0;i<5;i++){const a=time*4+i*Math.PI*2/5;
-    draw(G.star,M(T(hp[0]+Math.cos(a)*.55,hp[1]+Math.sin(a*2)*.05,hp[2]+Math.sin(a)*.55),RY(-a),S(.13,.13,.13)),C.star,.8);}}
-  // سایه
-  const sc=.55/(1+b.y*.4);draw(G.sph,M(T(b.x,.025,b.z),S(sc,.01,sc*.9)),C.shadow);}
+// ---------- خرگوش: تصویر اصلی امیر (سه نما) ----------
+const SVS=`attribute vec2 aQ;uniform vec3 uC,uR,uU;uniform mat4 uVP;uniform float uFlip;varying vec2 vUV;
+void main(){vec3 p=uC+uR*aQ.x+uU*aQ.y;vUV=vec2(uFlip>.5?.5-aQ.x:aQ.x+.5,1.-aQ.y);gl_Position=uVP*vec4(p,1.);}`;
+const SFS=`precision mediump float;uniform sampler2D uTex;varying vec2 vUV;void main(){vec4 c=texture2D(uTex,vUV);if(c.a<.04)discard;gl_FragColor=c;}`;
+const sprog=gl.createProgram();gl.attachShader(sprog,sh(gl.VERTEX_SHADER,SVS));gl.attachShader(sprog,sh(gl.FRAGMENT_SHADER,SFS));gl.linkProgram(sprog);
+const SU={};['uC','uR','uU','uVP','uFlip','uTex'].forEach(n=>SU[n]=gl.getUniformLocation(sprog,n));const aQ=gl.getAttribLocation(sprog,'aQ');
+const qbuf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,qbuf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-.5,0,.5,0,.5,1,-.5,0,.5,1,-.5,1]),gl.STATIC_DRAW);
+const TEX={};let texLoaded=0;
+for(const v of ['front','side','back']){const img=new Image();img.onload=()=>{const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);TEX[v]=t;texLoaded++;};img.src='img/bunny_'+v+'.png';}
+const BH=2.4; // اندازهٔ خرگوش
+let VP=null,lastSide=1;
+function bunnyPose(){const b=B,run=(state==='run'||state==='finish')&&b.speed>.5;let sx=1,sy=1,roll=0,lift=0;
+  if(run&&b.airAmt<.5){const ph=b.phase;lift=Math.abs(Math.sin(ph))*.14;sy=1+.05*Math.cos(ph*2);roll=Math.sin(ph)*.07;}
+  else if(state==='ready'){sy=1+.02*Math.sin(time*3);}
+  if(b.y>.05){sy*=b.vy>0?1.08:1.03;sx*=b.vy>0?.93:.98;}
+  roll+=Math.max(-.3,Math.min(.3,-b.vx*.035));
+  if(b.vx>.5)lastSide=1;else if(b.vx<-.5)lastSide=-1;
+  roll=lerp(roll,-lastSide*.6,b.slideAmt);sy=lerp(sy,.8,b.slideAmt);
+  roll=lerp(roll,Math.sin(time*7)*.13,b.sitAmt);sy=lerp(sy,.86,b.sitAmt);sx=lerp(sx,1.08,b.sitAmt);
+  return{sx,sy,roll,lift:lift*(1-b.slideAmt)*(1-b.sitAmt)};}
+function drawBunny(){const b=B;
+  const sc=.5/(1+b.y*.4);draw(G.sph,M(T(b.x,.025,b.z),S(sc,.01,sc*.75)),C.shadow);
+  const pz=bunnyPose();const H=BH*pz.sy;
+  if(b.sitAmt>.3){const hy=b.y+H*.64+.05;for(let i=0;i<5;i++){const a=time*4+i*Math.PI*2/5;
+    draw(G.star,M(T(b.x+Math.cos(a)*.55,hy+Math.sin(a*2)*.05,b.z+Math.sin(a)*.55),RY(-a),S(.13,.13,.13)),C.star,.8);}}
+  if(texLoaded<3)return;
+  const tc=[cam.p[0]-b.x,0,cam.p[2]-b.z],ang=Math.atan2(tc[0],tc[2]);let view='back',flip=0;
+  if(Math.abs(ang)>2.36)view='front';else if(ang>.79)view='side';else if(ang<-.79){view='side';flip=1;}
+  const r=norm(cross([0,1,0],norm(tc))),cr=Math.cos(pz.roll),sr=Math.sin(pz.roll),W=BH*pz.sx;
+  const R=[r[0]*cr*W,sr*W,r[2]*cr*W],Uv=[-r[0]*sr*H,cr*H,-r[2]*sr*H];
+  gl.useProgram(sprog);gl.bindBuffer(gl.ARRAY_BUFFER,qbuf);gl.disableVertexAttribArray(aNor);gl.enableVertexAttribArray(aQ);gl.vertexAttribPointer(aQ,2,gl.FLOAT,false,8,0);
+  gl.uniformMatrix4fv(SU.uVP,false,VP);gl.uniform3fv(SU.uC,[b.x,b.y+pz.lift,b.z]);gl.uniform3fv(SU.uR,R);gl.uniform3fv(SU.uU,Uv);gl.uniform1f(SU.uFlip,flip);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,TEX[view]);gl.uniform1i(SU.uTex,0);
+  gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);gl.drawArrays(gl.TRIANGLES,0,6);gl.disable(gl.BLEND);
+  gl.disableVertexAttribArray(aQ);gl.enableVertexAttribArray(aPos);gl.enableVertexAttribArray(aNor);gl.useProgram(prog);bound=null;}
 function drawWorld(){const z0=B.z+20,z1=B.z-130,mz=(z0+z1)/2,len=z0-z1;
   draw(G.cube,M(T(0,-.05,mz),S(7.6,.1,len)),C.road);
   for(const s of [-1,1]){draw(G.cube,M(T(s*4.55,0,mz),S(1.5,.2,len)),C.side);draw(G.cube,M(T(s*30,-.06,mz),S(50,.1,len)),C.grass);}
@@ -214,19 +222,26 @@ function render(){const dpr=Math.min(2,window.devicePixelRatio||1),w=Math.round(
   if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}gl.viewport(0,0,w,h);
   gl.clearColor(SKY[0],SKY[1],SKY[2],1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
   const asp=w/h,fy=Math.min(85,Math.max(55,2*Math.atan(Math.tan(28*Math.PI/180)/asp)*180/Math.PI))*Math.PI/180;
-  gl.uniformMatrix4fv(U.uVP,false,mul(persp(fy,asp,.1,220),lookAt(cam.p,cam.l,[0,1,0])));
+  VP=mul(persp(fy,asp,.1,220),lookAt(cam.p,cam.l,[0,1,0]));gl.uniformMatrix4fv(U.uVP,false,VP);
   gl.uniform3fv(U.uCam,cam.p);gl.uniform3fv(U.uFog,SKY);gl.uniform3fv(U.uLight,norm([.4,.85,.35]));gl.uniform1f(U.uFogN,45);gl.uniform1f(U.uFogF,125);
   bound=null;drawWorld();drawBunny();}
 
 // ---------- ورودی ----------
-let ps=null;
-addEventListener('pointerdown',e=>{if(e.target.tagName==='BUTTON')return;ps={x:e.clientX,y:e.clientY,done:false};});
-addEventListener('pointermove',e=>{if(!ps||ps.done)return;const dx=e.clientX-ps.x,dy=e.clientY-ps.y;if(Math.hypot(dx,dy)>28){ps.done=true;swipe(Math.abs(dx)>Math.abs(dy)?(dx<0?'L':'R'):(dy<0?'U':'D'));}});
-addEventListener('pointerup',()=>{if(ps&&!ps.done&&state==='ready')start();ps=null;});
-addEventListener('keydown',e=>{const k={ArrowLeft:'L',a:'L',ArrowRight:'R',d:'R',ArrowUp:'U',w:'U',ArrowDown:'D',s:'D'}[e.key];if(k)swipe(k);else if(e.key===' ')start();});
+let ps=null;const SENS=()=>16/innerWidth;
+addEventListener('pointerdown',e=>{if(e.target.tagName==='BUTTON')return;ps={x:e.clientX,y:e.clientY,ax:e.clientX,ay:e.clientY,bx:B.tx,steer:false};});
+addEventListener('pointermove',e=>{if(!ps)return;const x=e.clientX,y=e.clientY,vdx=x-ps.ax,vdy=y-ps.ay;
+  if(Math.abs(vdy)>40&&Math.abs(vdy)>Math.abs(vdx)*1.5){swipe(vdy<0?'U':'D');ps.ax=x;ps.ay=y;}
+  else if(Math.abs(vdx)>10&&Math.abs(vdx)>Math.abs(vdy)*1.5){ps.ax=x;ps.ay=y;}
+  const dx=x-ps.x;if(state==='run'){if(!ps.steer&&Math.abs(dx)>6){ps.steer=true;ps.x=x;ps.bx=B.tx;}if(ps.steer)B.tx=Math.max(-XMAX,Math.min(XMAX,ps.bx+(x-ps.x)*SENS()));}});
+addEventListener('pointerup',()=>{if(ps&&state==='ready')start();ps=null;});
+addEventListener('pointercancel',()=>{ps=null;});
+const held={};
+addEventListener('keydown',e=>{if(e.repeat)return;const k={ArrowUp:'U',w:'U',ArrowDown:'D',s:'D'}[e.key];if(k)swipe(k);else if(e.key===' ')start();
+  if(e.key==='ArrowLeft'||e.key==='a')held.L=1;if(e.key==='ArrowRight'||e.key==='d')held.R=1;B.steer=(held.R||0)-(held.L||0);});
+addEventListener('keyup',e=>{if(e.key==='ArrowLeft'||e.key==='a')held.L=0;if(e.key==='ArrowRight'||e.key==='d')held.R=0;B.steer=(held.R||0)-(held.L||0);});
 $('again').addEventListener('click',reset);
 // ابزار تست خودکار
-window.__g={B,get state(){return state;},swipe,start,hurt:()=>hurt(null),jumpTo:z=>{B.z=z;},sim:sec=>{for(let i=0;i<Math.round(sec*60);i++)update(1/60);render();},stop:()=>{paused=true;}};
+window.__g={B,steerTo:x=>{B.tx=x;},get tex(){return texLoaded;},get state(){return state;},swipe,start,hurt:()=>hurt(null),jumpTo:z=>{B.z=z;},sim:sec=>{for(let i=0;i<Math.round(sec*60);i++)update(1/60);render();},stop:()=>{paused=true;}};
 
 let last=performance.now();
 let paused=false;
